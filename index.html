@@ -1,0 +1,157 @@
+<meta name="viewport" content="width=device-width,initial-scale=0.8,user-scalable=no,maximum-scale=0.8,viewport-fit=cover" />
+<style type="text/css">
+html, body{
+	overflow: hidden;
+}
+.num{
+	width: 100px;
+	height: 100px;
+	float: left;
+  display: flex;
+  align-items: center;
+  font-size: 32px;
+  justify-content: center;
+	color: #776e65;
+	margin: 5px;
+	font-family: arial;
+	font-weight: bold;
+}
+
+.n1024, .n2048{
+	font-size: 28px;
+}
+
+.tr-1{
+	transition: .05s linear;
+}
+.tr-2{
+	transition: .1s linear;
+}
+.tr-3{
+	transition: .15s linear;
+}
+.m-l1{
+	transform: translateX(-105px);
+}
+.m-l2{
+	transform: translateX(-220px);
+}
+.m-l3{
+	transform: translateX(-325px);
+}
+.m-r1{
+	transform: translateX(105px);
+}
+.m-r2{
+	transform: translateX(220px);
+}
+.m-r3{
+	transform: translateX(325px);
+}
+.m-u1{
+	transform: translateY(-105px);
+}
+.m-u2{
+	transform: translateY(-220px);
+}
+.m-u3{
+	transform: translateY(-325px);
+}
+.m-d1{
+	transform: translateY(105px);
+}
+.m-d2{
+	transform: translateY(220px);
+}
+.m-d3{
+	transform: translateY(325px);
+}
+
+#board{
+	position: relative;
+	width: 440px;
+	height: 440px;
+	background: #bbada0;
+	padding: 5px;
+}
+.n0{
+	background: #cdc1b5;
+}
+.n2{
+  background: #eee4da;
+}
+.n4{
+  background: #ede0c8;
+}
+.n8{
+  color: #f9f6f2;
+  background: #f2b179;
+}
+.n16{
+  color: #f9f6f2;
+  background: #f59563;
+}
+.n32{
+  color: #f9f6f2;
+  background: #f67c5f;
+}
+.n64{
+  color: #f9f6f2;
+  background: #f65e3b;
+}
+.n128{
+  color: #f9f6f2;
+  background: #edcf72;
+}
+.n256{
+  color: #f9f6f2;
+  background: #edcc61;
+}
+.n512{
+  color: #f9f6f2;
+  background: #edc850;
+}
+.n1024{
+  color: #f9f6f2;
+  background: #edc53f;
+}
+.n2048{
+  color: #f9f6f2;
+  background: #edc22e;
+}
+.new{
+	animation: appear .2s;
+}
+@keyframes appear{
+	0%{
+		transform: scale(0);
+		opacity: .3;
+		transform-origin: center;
+	}
+	100%{
+		transform: scale(1);
+		opacity: 1;
+		transform-origin: center;
+	}
+}
+
+.end{
+  position: absolute;
+  z-index: 50;
+  color: #737171;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background: rgb(255 255 255 / 10%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 43px;
+  animation: appear .3s;
+}
+
+</style>
+<div id='board'></div>
+<script type="text/javascript" src='https://unpkg.com/@tensorflow/tfjs@4.22.0/dist/tf.min.js'></script>
+<script src='./1.js'></script>
