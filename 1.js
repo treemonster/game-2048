@@ -258,8 +258,15 @@ async function loadModel() {
   model.add(tf.layers.embedding({
     inputShape: [4, 4],
     inputDim: 16,
-    outputDim: 16,
+    outputDim: 8,
   }))
+  model.add(tf.layers.conv2d({
+    kernelSize: 3,
+    filters: 16,
+    padding: 'same',
+    activation: 'relu'
+  }))
+  model.add(tf.layers.maxPooling2d({poolSize: 2, strides: 2}))
   model.add(tf.layers.conv2d({
     kernelSize: 3,
     filters: 32,
@@ -267,20 +274,13 @@ async function loadModel() {
     activation: 'relu'
   }))
   model.add(tf.layers.maxPooling2d({poolSize: 2, strides: 2}))
-  model.add(tf.layers.conv2d({
-    kernelSize: 3,
-    filters: 64,
-    padding: 'same',
-    activation: 'relu'
-  }))
-  model.add(tf.layers.maxPooling2d({poolSize: 2, strides: 2}))
   model.add(tf.layers.flatten({}))
   model.add(tf.layers.dense({
-    units: 256,
+    units: 128,
     activation: 'relu',
   }))
   model.add(tf.layers.dense({
-    units: 256,
+    units: 128,
     activation: 'relu',
   }))
   model.add(tf.layers.dense({
@@ -394,7 +394,7 @@ function expert_track() {
   return track_steps
 }
 
-function* getTrainBatch(model, batchSize=256) {
+function* getTrainBatch(model, batchSize=128) {
   const minNum=1024
   const track_maxlen=200
   const track_ls=[]
@@ -529,7 +529,7 @@ function query(k) {
 
   if(state==='train') {
     model.compile({
-      optimizer: tf.train.adam(1e-3),
+      optimizer: tf.train.adam(2e-4),
       loss: 'categoricalCrossentropy',
     })
     const ds=getTrainBatch(model)
