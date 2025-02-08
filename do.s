@@ -17,9 +17,13 @@ function data() {
 }
 
 if(q.a==='save') {
+  const exp_dir=__dirname+'/exp-tracks'
+  try{
+    fs.mkdirSync(exp_dir)
+  }catch(e) {}
   Sync.Push(data().then(x=>{
-    const fn=`${q.n}-${Date.now()}-human-exp.json`
+    const fn=`${exp_dir}/${q.n}-${Date.now()}.json`
     const fs=require('fs')
-    fs.writeFileSync(__dirname+'/'+fn, x)
+    fs.writeFileSync(fn, x)
   }))
 }

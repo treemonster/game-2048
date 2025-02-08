@@ -163,16 +163,10 @@ function shouldRecord() {
 
 function saveRecord(rec, n) {
   const sav=JSON.stringify(rec)
-  if(isBrowser) {
-    const xhr=new XMLHttpRequest
-    xhr.open('POST', '/do.s?a=save&n='+n, true)
-    xhr.setRequestHeader('content-type', 'application/x-www-form-urlencoded')
-    xhr.send(sav)
-  }else{
-    const fn=`${n}-${Date.now()}-mod-exp.json`
-    const fs=require('fs')
-    fs.writeFileSync(__dirname+'/'+fn, sav)
-  }
+  const xhr=new XMLHttpRequest
+  xhr.open('POST', '/do.s?a=save&n='+n, true)
+  xhr.setRequestHeader('content-type', 'application/x-www-form-urlencoded')
+  xhr.send(sav)
 }
 
 function playStepEx(dir, noRender) {
@@ -192,9 +186,9 @@ function playStepEx(dir, noRender) {
 
   const end=isGameover()
 
-  if(end && shouldRecord() && getState().max>=1024) {
-    saveRecord(record, getState().max)
-    alert('saved!')
+  if(end && shouldRecord() && getMax()>=1024) {
+    saveRecord(record, getMax())
+    setTimeout(_=>alert('saved!'), 5e2)
   }
 
   if(!noRender) {
@@ -212,7 +206,7 @@ if(isBrowser) {
   document.onkeydown=e=>{
     playStepEx(
       (e.keyCode===38 && 'up') ||
-       (e.keyCode===39 && 'right') ||
+      (e.keyCode===39 && 'right') ||
       (e.keyCode===40 && 'down') ||
       (e.keyCode===37 && 'left')
     )
@@ -258,7 +252,7 @@ async function loadModel() {
   model.add(tf.layers.embedding({
     inputShape: [4, 4],
     inputDim: 16,
-    outputDim: 8,
+    outputDim: 16,
   }))
   model.add(tf.layers.conv2d({
     kernelSize: 3,
@@ -276,11 +270,7 @@ async function loadModel() {
   model.add(tf.layers.maxPooling2d({poolSize: 2, strides: 2}))
   model.add(tf.layers.flatten({}))
   model.add(tf.layers.dense({
-    units: 128,
-    activation: 'relu',
-  }))
-  model.add(tf.layers.dense({
-    units: 128,
+    units: 64,
     activation: 'relu',
   }))
   model.add(tf.layers.dense({
@@ -292,21 +282,22 @@ async function loadModel() {
   return [model, _=>saveFn(model)]
 }
 
+const dirs=['up', 'right', 'down', 'left']
+
 function dir2y(dir) {
-  return ['up', 'right', 'down', 'left'].indexOf(dir)
+  return dirs.indexOf(dir)
 }
 function y2dir(y) {
-  return ['up', 'right', 'down', 'left'][y]
+  return dirs[y]
 }
-function getState() {
-  let max=0, empty=0
+function getMax() {
+  let max=0
   for(let i=0; i<4; i++) {
     for(let j=0; j<4; j++) {
       max=Math.max(max, map[i][j])
-      if(!map[i][j]) empty++
     }
   }
-  return {max, empty}
+  return max
 }
 function copy() {
   return map.map(x=>x.slice())
@@ -378,9 +369,10 @@ function argu_xy(o) {
 function expert_track() {
   const track_steps=[]
   const fs=require('fs')
-  fs.readdirSync('.').map(x=>{
-    if(x.indexOf('-exp.json')>-1) {
-      const res=JSON.parse(fs.readFileSync(__dirname+'/'+x, 'utf8'))
+  const exp_dir=__dirname+'/exp-tracks'
+  fs.readdirSync(exp_dir).map(x=>{
+    if(x.indexOf('.json')>-1) {
+      const res=JSON.parse(fs.readFileSync(exp_dir+'/'+x, 'utf8'))
       const track=[]
       for(const [mapCopy, dir] of res) {
         const axy=argu_xy({
@@ -394,18 +386,12 @@ function expert_track() {
   return track_steps
 }
 
-function* getTrainBatch(model, batchSize=128) {
-  const minNum=1024
-  const track_maxlen=200
-  const track_ls=[]
+function* getTrainDs(model, batchSize=64) {
 
   const exp_track_steps=expert_track()
 
   function build_xy() {
     const xy=[...exp_track_steps]
-    for(const {track} of track_ls) {
-      xy.push(...track)
-    }
     rsort(xy)
     return xy
   }
@@ -418,60 +404,12 @@ function* getTrainBatch(model, batchSize=128) {
         xs.push(x)
         ys.push(y)
       }
-      x=tf.tidy(_=>tf.tensor3d(xs, [batchSize, 4, 4]))
-      y=tf.tidy(_=>tf.oneHot(tf.tensor1d(ys, 'int32'), 4))
-      yield [x, y]
+      yield {
+        xs: tf.tidy(_=>tf.tensor3d(xs, [batchSize, 4, 4])),
+        ys: tf.tidy(_=>tf.oneHot(tf.tensor1d(ys, 'int32'), 4)),
+      }
     }else{
       xy=xy.concat(build_xy())
-    }
-
-    newGame(true)
-    let ts={
-      empty: 0,
-      max: 0,
-      v: 0,
-      track: [],
-      record: [],
-    }
-    for(;!isGameover();) {
-      const r=predict(model)
-      for(const dir of r) {
-        const mapCopy=copy()
-        const recordStep=[copy(), dir]
-        if(playStepEx(dir, true)) {
-          let {max, empty}=getState()
-          empty+=1
-          ts.max=max
-          ts.empty+=empty
-          ts.track.push(...argu_xy({
-            x: mapCopy2x(mapCopy),
-            y: dir2y(dir),
-            max,
-            empty,
-          }))
-          ts.record.push(recordStep)
-          break
-        }
-      }
-    }
-
-    const max=getState().max
-    if(max>=minNum) {
-      ts.v=ts.max*1e3+ts.empty/1e3
-
-      saveRecord(ts.record, max)
-      track_ls.push(ts)
-
-      if(track_ls.length>track_maxlen) {
-        let min_i=-1, min_s=1e8
-        for(let i=0; i<track_ls.length; i++) {
-          if(track_ls[i].v<min_s) {
-            min_s=track_ls[i].v
-            min_i=i
-          }
-        }
-        track_ls.splice(min_i, 1)
-      }
     }
 
   }
@@ -484,7 +422,7 @@ function predict(model) {
   return [...ns].map(n=>y2dir(n))
 }
 
-async function test(isRandom, n=1000, log_step=200) {
+async function test(isRandom, n=1000, log_step=250) {
   const [model]=await loadModel()
   let maxs={}
   let str=''
@@ -492,13 +430,13 @@ async function test(isRandom, n=1000, log_step=200) {
     newGame(true)
     for(;!isGameover();) {
       const r=isRandom?
-        rsort(['up', 'down', 'right', 'left']):
+        rsort(dirs.slice(0)):
         predict(model)
       for(const dir of r) {
         if(playStepEx(dir, true)) break
       }
     }
-    const max=getState().max
+    const max=getMax()
     maxs[max]=maxs[max] || 0
     maxs[max]++
     str=`${isRandom? "random:": "model:"} ${i+1} ${JSON.stringify(maxs)}`
@@ -529,36 +467,33 @@ function query(k) {
 
   if(state==='train') {
     model.compile({
-      optimizer: tf.train.adam(2e-4),
+      optimizer: tf.train.adam(1e-3),
       loss: 'categoricalCrossentropy',
     })
-    const ds=getTrainBatch(model)
-    let step=0, losses=0
-    for(const [x, y] of ds) {
-      const loss_v=await model.trainOnBatch(x, y)
-      losses+=loss_v
-      if(step%100===0) console.log("loss:", loss_v)
-      if(++step>1000) {
-        await save()
-        console.log("loss_avg:", losses/step)
-        const [rand, mod]=await Promise.all([
-          test(true, 100),
-          test(false, 100),
-        ])
-        const table={}
-        for(let k of [...Object.keys(rand), ...Object.keys(mod)].map(x=>parseInt(x)).sort()) {
-          table[k]={
-            random: rand[k] || 0,
-            model: mod[k] || 0,
+    const ds=getTrainDs(model)
+    model.fitDataset({iterator: _=>ds}, {
+      epochs: 100,
+      batchesPerEpoch: 20000,
+      callbacks: {
+        onEpochEnd: async _=>{
+          await save()
+          const [rand, mod]=await Promise.all([
+            test(true, 100),
+            test(false, 100),
+          ])
+          const table={}
+          for(let k of [...Object.keys(rand), ...Object.keys(mod)].map(x=>parseInt(x)).sort()) {
+            table[k]={
+              random: rand[k] || 0,
+              model: mod[k] || 0,
+            }
           }
-        }
-        console.log("test:")
-        console.table(table)
-        console.log("--saved--")
-        step=0
-        losses=0
-      }
-    }
+          console.log("test:")
+          console.table(table)
+          console.log("--saved--")
+        },
+      },
+    })
   }else if(state==='test') {
     await test(true)
     await test(false)

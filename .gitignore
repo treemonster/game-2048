@@ -1,6 +1,5 @@
 .DS_*
 node_modules
-*-mod-exp.json
 mod-2048
 *.tgz
 
