@@ -26,3 +26,11 @@ node 1 train
 ## Test
 
 node 1
+
+## Add human expert tracks
+
+1. run `sptcd -d`
+
+2. open `http://127.0.0.1:9090/index.html`
+
+3. play the game and at least get a 1024 block
