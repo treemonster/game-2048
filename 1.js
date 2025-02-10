@@ -226,6 +226,7 @@ if(isBrowser) {
     else if(ady*3>adx && ady>20) playStepEx(dy<0? 'up': 'down')
   }
 
+  window.onbeforeunload=_=>'leave?'
 }
 
 
@@ -256,23 +257,28 @@ async function loadModel() {
   }))
   model.add(tf.layers.conv2d({
     kernelSize: 3,
-    filters: 16,
+    filters: 32,
     padding: 'same',
     activation: 'relu'
   }))
   model.add(tf.layers.maxPooling2d({poolSize: 2, strides: 2}))
   model.add(tf.layers.conv2d({
     kernelSize: 3,
-    filters: 32,
+    filters: 64,
     padding: 'same',
     activation: 'relu'
   }))
   model.add(tf.layers.maxPooling2d({poolSize: 2, strides: 2}))
   model.add(tf.layers.flatten({}))
   model.add(tf.layers.dense({
-    units: 64,
+    units: 256,
     activation: 'relu',
   }))
+  model.add(tf.layers.dense({
+    units: 256,
+    activation: 'relu',
+  }))
+  model.add(tf.layers.dropout(.3))
   model.add(tf.layers.dense({
     units: 4,
     useBias: true,
@@ -472,7 +478,7 @@ function query(k) {
     })
     const ds=getTrainDs(model)
     model.fitDataset({iterator: _=>ds}, {
-      epochs: 100,
+      epochs: 20,
       batchesPerEpoch: 20000,
       callbacks: {
         onEpochEnd: async _=>{

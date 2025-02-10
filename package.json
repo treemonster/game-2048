@@ -1,0 +1,11 @@
+{
+  "scripts": {
+    "train": "node 1 train",
+    "test": "node 1",
+    "game": "sptcd -d"
+  },
+  "dependencies": {
+    "sptc": "0.0.25",
+    "@tensorflow/tfjs-node-gpu": "3.20.0"
+  }
+}

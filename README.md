@@ -1,36 +1,31 @@
 ## Requirements
 
 1. node v18
+
 2. npm v6
+
 3. macOS >= 10 or windows 11
 
 
 ## Install
 
-1. npm i sptc@latest -g
-
-2. install tfjs-gpu
-
-  - On macOS:
-
-    npm i @tensorflow/tfjs-node-gpu@4.22.0
-
-  - On windows
-
-    npm i @tensorflow/tfjs-node-gpu@3
+1. `npm i`
 
 ## Train
 
-node 1 train
+1. `npm run train`
 
 ## Test
 
-node 1
+1. `npm run test`
 
 ## Add human expert tracks
 
-1. run `sptcd -d`
+1. `npm run game`
 
 2. open `http://127.0.0.1:9090/index.html`
 
-3. play the game and at least get a 1024 block
+3. play the 2048 game.
+
+4. when the game is over, if you have achieved a value of 1024 or larger, your previous moves 
+will be saved to a JSON file within the `exp-tracks` folder, and can be used for training the model.
