@@ -1,5 +1,3 @@
-// sptcd -d
-
 const isBrowser=typeof document!=='undefined'
 
 function step(arr) {
@@ -278,7 +276,7 @@ async function loadModel() {
     units: 256,
     activation: 'relu',
   }))
-  model.add(tf.layers.dropout(.3))
+  model.add(tf.layers.dropout(.5))
   model.add(tf.layers.dense({
     units: 4,
     useBias: true,
@@ -296,11 +294,12 @@ function dir2y(dir) {
 function y2dir(y) {
   return dirs[y]
 }
-function getMax() {
+function getMax(map1) {
+  const m=map1 || map
   let max=0
   for(let i=0; i<4; i++) {
     for(let j=0; j<4; j++) {
-      max=Math.max(max, map[i][j])
+      max=Math.max(max, m[i][j])
     }
   }
   return max
@@ -372,6 +371,31 @@ function argu_xy(o) {
   return ls
 }
 
+function lowX(mapCopy) {
+  const map2=[]
+  for(let i=0; i<4; i++) {
+    map2[i]=[]
+    for(let j=0; j<4; j++) {
+      const r=mapCopy[i][j]/2
+      if(r===1) return;
+      map2[i][j]=r
+    }
+  }
+  return map2
+}
+function highX(mapCopy) {
+  const map2=[]
+  for(let i=0; i<4; i++) {
+    map2[i]=[]
+    for(let j=0; j<4; j++) {
+      const r=mapCopy[i][j]*2
+      if(r===2048) return;
+      map2[i][j]=r
+    }
+  }
+  return map2
+}
+
 function expert_track() {
   const track_steps=[]
   const fs=require('fs')
@@ -380,19 +404,35 @@ function expert_track() {
     if(x.indexOf('.json')>-1) {
       const res=JSON.parse(fs.readFileSync(exp_dir+'/'+x, 'utf8'))
       const track=[]
+      const max=parseInt(x.match(/1024|2048/))
       for(const [mapCopy, dir] of res) {
-        const axy=argu_xy({
-          x: mapCopy2x(mapCopy),
-          y: dir2y(dir),
-        })
-        track_steps.push(...axy)
+        if(getMax(mapCopy)>=max) break
+
+        const mapCopyLs=[mapCopy]
+        for(let lx=mapCopy;;) {
+          lx=lowX(lx)
+          if(!lx) break
+          mapCopyLs.push(lx)
+        }
+        for(let hx=mapCopy;;) {
+          hx=highX(hx)
+          if(!hx) break
+          mapCopyLs.push(hx)
+        }
+        for(const mc of mapCopyLs) {
+          track_steps.push(...argu_xy({
+            x: mapCopy2x(mc),
+            y: dir2y(dir),
+          }))
+        }
+
       }
     }
   })
   return track_steps
 }
 
-function* getTrainDs(model, batchSize=64) {
+function* getTrainDs(model, batchSize) {
 
   const exp_track_steps=expert_track()
 
@@ -473,13 +513,13 @@ function query(k) {
 
   if(state==='train') {
     model.compile({
-      optimizer: tf.train.adam(1e-3),
+      optimizer: tf.train.rmsprop(1e-3),
       loss: 'categoricalCrossentropy',
     })
-    const ds=getTrainDs(model)
+    const ds=getTrainDs(model, 256)
     model.fitDataset({iterator: _=>ds}, {
-      epochs: 20,
-      batchesPerEpoch: 20000,
+      epochs: 100,
+      batchesPerEpoch: 10000,
       callbacks: {
         onEpochEnd: async _=>{
           await save()
