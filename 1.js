@@ -115,7 +115,7 @@ function playStep(dir) {
   return [moveStep, moves]
 }
 
-async function render(moves, dir, news, end) {
+async function render(moves, dir, news, end, max) {
   if(moves) {
     let w=0
     for(let i=0; i<r; i++) {
@@ -138,12 +138,13 @@ async function render(moves, dir, news, end) {
     }
   }
   if(end) {
-    str+=`<div class='end'>Gameover</div>`
+    str+=`<div class='end'>${max===2048? 'You Win!': 'Gameover'}</div>`
   }
   board.innerHTML=str
 }
 
 function isGameover() {
+  if(getMax()===2048) return true
   for(let i=0; i<r; i++) {
     for(let j=0; j<r; j++) {
       let a=map[j][i]
@@ -183,14 +184,15 @@ function playStepEx(dir, noRender) {
   let news=addNewNum(1)
 
   const end=isGameover()
+  const max=getMax()
 
-  if(end && shouldRecord() && getMax()>=1024) {
-    saveRecord(record, getMax())
+  if(end && shouldRecord() && max>=1024) {
+    saveRecord(record, max)
     setTimeout(_=>alert('saved!'), 5e2)
   }
 
   if(!noRender) {
-    render(moves, dir, news, end)
+    render(moves, dir, news, end, max)
   }
 
   return true
@@ -250,19 +252,31 @@ async function loadModel() {
   const model=tf.sequential()
   model.add(tf.layers.embedding({
     inputShape: [4, 4],
-    inputDim: 16,
-    outputDim: 16,
+    inputDim: 12, // 0~11
+    outputDim: 32,
   }))
   model.add(tf.layers.conv2d({
     kernelSize: 3,
-    filters: 32,
+    filters: 64,
+    padding: 'same',
+    activation: 'relu'
+  }))
+  model.add(tf.layers.conv2d({
+    kernelSize: 3,
+    filters: 64,
     padding: 'same',
     activation: 'relu'
   }))
   model.add(tf.layers.maxPooling2d({poolSize: 2, strides: 2}))
   model.add(tf.layers.conv2d({
     kernelSize: 3,
-    filters: 64,
+    filters: 128,
+    padding: 'same',
+    activation: 'relu'
+  }))
+  model.add(tf.layers.conv2d({
+    kernelSize: 3,
+    filters: 128,
     padding: 'same',
     activation: 'relu'
   }))
@@ -273,10 +287,9 @@ async function loadModel() {
     activation: 'relu',
   }))
   model.add(tf.layers.dense({
-    units: 256,
+    units: 512,
     activation: 'relu',
   }))
-  model.add(tf.layers.dropout(.5))
   model.add(tf.layers.dense({
     units: 4,
     useBias: true,
@@ -407,7 +420,6 @@ function expert_track() {
       const max=parseInt(x.match(/1024|2048/))
       for(const [mapCopy, dir] of res) {
         if(getMax(mapCopy)>=max) break
-
         const mapCopyLs=[mapCopy]
         for(let lx=mapCopy;;) {
           lx=lowX(lx)
@@ -425,40 +437,36 @@ function expert_track() {
             y: dir2y(dir),
           }))
         }
-
       }
     }
   })
   return track_steps
 }
 
-function* getTrainDs(model, batchSize) {
+function getTrainData(batchSize) {
 
   const exp_track_steps=expert_track()
 
-  function build_xy() {
-    const xy=[...exp_track_steps]
-    rsort(xy)
-    return xy
-  }
-
-  for(let xy=[];;) {
-    if(xy.length>batchSize) {
-      const xys=xy.splice(0, batchSize)
-      const xs=[], ys=[]
-      for(const {x, y} of xys) {
-        xs.push(x)
-        ys.push(y)
+  function *iterator() {
+    for(let xy=[];;) {
+      if(xy.length>batchSize) {
+        const xys=xy.splice(0, batchSize)
+        const xs=[], ys=[]
+        for(const {x, y} of xys) {
+          xs.push(x)
+          ys.push(y)
+        }
+        yield {
+          xs: tf.tidy(_=>tf.tensor3d(xs, [batchSize, 4, 4])),
+          ys: tf.tidy(_=>tf.oneHot(tf.tensor1d(ys, 'int32'), 4)),
+        }
+      }else{
+        xy=xy.concat(rsort([...exp_track_steps]))
       }
-      yield {
-        xs: tf.tidy(_=>tf.tensor3d(xs, [batchSize, 4, 4])),
-        ys: tf.tidy(_=>tf.oneHot(tf.tensor1d(ys, 'int32'), 4)),
-      }
-    }else{
-      xy=xy.concat(build_xy())
     }
-
   }
+
+  return [iterator(), Math.round(exp_track_steps.length/batchSize)]
 }
 
 function predict(model) {
@@ -512,31 +520,43 @@ function query(k) {
   model.summary()
 
   if(state==='train') {
+    const opt=tf.train.adam(1e-3)
     model.compile({
-      optimizer: tf.train.rmsprop(1e-3),
+      optimizer: opt,
       loss: 'categoricalCrossentropy',
+      metrics: ['acc'],
     })
-    const ds=getTrainDs(model, 256)
+    const [ds, steps]=getTrainData(256)
+    let prev_loss=99
     model.fitDataset({iterator: _=>ds}, {
       epochs: 100,
-      batchesPerEpoch: 10000,
+      batchesPerEpoch: steps,
       callbacks: {
-        onEpochEnd: async _=>{
+        onEpochEnd: async (epoch, {loss})=>{
           await save()
-          const [rand, mod]=await Promise.all([
-            test(true, 100),
-            test(false, 100),
-          ])
-          const table={}
-          for(let k of [...Object.keys(rand), ...Object.keys(mod)].map(x=>parseInt(x)).sort()) {
-            table[k]={
-              random: rand[k] || 0,
-              model: mod[k] || 0,
+          console.log("-- saved --")
+
+          const next=[
+            [1e-3, .01, 'dc'],
+            [1e-4, .002, 'dc'],
+            [1e-5, .001, 'dc'],
+            [1e-6, .0001, 'stop'],
+          ]
+          for(let i=0; i<next.length; i++) {
+            const [lr, min_diff, todo]=next[i]
+            if(lr!==opt.learningRate) continue
+            if(prev_loss-loss>=min_diff) continue
+            if(todo==='dc') {
+              opt.learningRate=next[i+1][0]
+              console.log(`-- learningRate decreased to ${opt.learningRate} --`)
+            }else{
+              console.log("-- early stopped --")
+              process.exit()
             }
+            break
           }
-          console.log("test:")
-          console.table(table)
-          console.log("--saved--")
+
+          prev_loss=loss
         },
       },
     })
