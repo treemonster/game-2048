@@ -160,10 +160,10 @@ function shouldRecord() {
   return isBrowser && !query('t')
 }
 
-function saveRecord(rec, n) {
+function saveRecord(rec) {
   const sav=JSON.stringify(rec)
   const xhr=new XMLHttpRequest
-  xhr.open('POST', '/do.s?a=save&n='+n, true)
+  xhr.open('POST', '/do.s?a=save', true)
   xhr.setRequestHeader('content-type', 'application/x-www-form-urlencoded')
   xhr.send(sav)
 }
@@ -186,8 +186,8 @@ function playStepEx(dir, noRender) {
   const end=isGameover()
   const max=getMax()
 
-  if(end && shouldRecord() && max>=1024) {
-    saveRecord(record, max)
+  if(end && shouldRecord() && max===2048) {
+    saveRecord(record)
     setTimeout(_=>alert('saved!'), 5e2)
   }
 
@@ -307,12 +307,11 @@ function dir2y(dir) {
 function y2dir(y) {
   return dirs[y]
 }
-function getMax(map1) {
-  const m=map1 || map
+function getMax() {
   let max=0
   for(let i=0; i<4; i++) {
     for(let j=0; j<4; j++) {
-      max=Math.max(max, m[i][j])
+      max=Math.max(max, map[i][j])
     }
   }
   return max
@@ -417,9 +416,7 @@ function expert_track() {
     if(x.indexOf('.json')>-1) {
       const res=JSON.parse(fs.readFileSync(exp_dir+'/'+x, 'utf8'))
       const track=[]
-      const max=parseInt(x.match(/1024|2048/))
       for(const [mapCopy, dir] of res) {
-        if(getMax(mapCopy)>=max) break
         const mapCopyLs=[mapCopy]
         for(let lx=mapCopy;;) {
           lx=lowX(lx)
@@ -508,7 +505,7 @@ function query(k) {
 ; (async _=>{
   const state=isBrowser?
     query('t'):
-    process.argv[2]==='train'? 'train': 'test'
+    'train'===process.argv[2]? 'train': 'test'
 
   if(!state) {
     newGame()
@@ -526,7 +523,7 @@ function query(k) {
       loss: 'categoricalCrossentropy',
       metrics: ['acc'],
     })
-    const [ds, steps]=getTrainData(256)
+    const [ds, steps]=getTrainData(64)
     let prev_loss=99
     model.fitDataset({iterator: _=>ds}, {
       epochs: 100,

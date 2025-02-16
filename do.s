@@ -22,7 +22,7 @@ if(q.a==='save') {
     fs.mkdirSync(exp_dir)
   }catch(e) {}
   Sync.Push(data().then(x=>{
-    const fn=`${exp_dir}/${q.n}-${Date.now()}.json`
+    const fn=`${exp_dir}/${Date.now()}.json`
     const fs=require('fs')
     fs.writeFileSync(fn, x)
   }))
