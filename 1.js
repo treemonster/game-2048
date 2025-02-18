@@ -203,7 +203,14 @@ function sleep(t) {
 }
 
 if(isBrowser) {
+  function set_lock(xs, t) {
+    for(const x of xs.length? xs: [xs]) x.className=t? 'btn disable': 'btn'
+  }
+  function is_lock(x) {
+    return x.className.indexOf('disable')>-1
+  }
   document.onkeydown=e=>{
+    if(is_lock(undo)) return;
     playStepEx(
       (e.keyCode===38 && 'up') ||
       (e.keyCode===39 && 'right') ||
@@ -211,13 +218,13 @@ if(isBrowser) {
       (e.keyCode===37 && 'left')
     )
   }
-
   let tx=-1, ty=-1
   window.ontouchstart=e=>{
     tx=e.touches[0].clientX
     ty=e.touches[0].clientY
   }
   window.ontouchend=e=>{
+    if(is_lock(undo)) return;
     const tx1=e.changedTouches[0].clientX
     const ty1=e.changedTouches[0].clientY
     const dx=tx1-tx, dy=ty1-ty
@@ -225,8 +232,38 @@ if(isBrowser) {
     if(adx*3>ady && adx>20) playStepEx(dx<0? 'left': 'right')
     else if(ady*3>adx && ady>20) playStepEx(dy<0? 'up': 'down')
   }
-
   window.onbeforeunload=_=>'leave?'
+
+  let isAutoplaying=false
+  window.addEventListener('click', async e=>{
+    if(is_lock(e.target)) return;
+    if(e.target===undo) {
+      map=record.pop()[0]
+      render()
+    }else if(e.target===newgame) {
+      newGame()
+    }else if(e.target===autoplay) {
+      isAutoplaying=!isAutoplaying
+      autoplay.innerHTML=isAutoplaying? 'Stop': 'Autoplay'
+      set_lock([undo, newgame], true)
+      const [model]=await loadModel()
+      if(isGameover()) newGame()
+      for(;;) {
+        const dirs=await predict(model)
+        if(!isAutoplaying) break
+        for(const dir of dirs) {
+          if(playStepEx(dir)) break
+        }
+        if(isGameover()) break;
+        await sleep(200)
+      }
+      set_lock([undo, newgame], false)
+      if(isAutoplaying) {
+        isAutoplaying=false
+        autoplay.innerHTML='Autoplay'
+      }
+    }
+  })
 }
 
 
@@ -253,7 +290,7 @@ async function loadModel() {
   model.add(tf.layers.embedding({
     inputShape: [4, 4],
     inputDim: 12, // 0~11
-    outputDim: 32,
+    outputDim: 16,
   }))
   model.add(tf.layers.conv2d({
     kernelSize: 3,
@@ -283,13 +320,14 @@ async function loadModel() {
   model.add(tf.layers.maxPooling2d({poolSize: 2, strides: 2}))
   model.add(tf.layers.flatten({}))
   model.add(tf.layers.dense({
-    units: 256,
+    units: 512,
     activation: 'relu',
   }))
   model.add(tf.layers.dense({
     units: 512,
     activation: 'relu',
   }))
+  model.add(tf.layers.dropout(.1))
   model.add(tf.layers.dense({
     units: 4,
     useBias: true,
@@ -316,8 +354,8 @@ function getMax() {
   }
   return max
 }
-function copy() {
-  return map.map(x=>x.slice())
+function copy(m) {
+  return (m || map).map(x=>x.slice())
 }
 function mapCopy2x(mapCopy) {
   for(let i=0; i<4; i++) {
@@ -383,6 +421,23 @@ function argu_xy(o) {
   return ls
 }
 
+function isValid(mapCopy, dir) {
+  const _map=map
+  map=copy(mapCopy)
+  const check=_=>[
+    map[0][0],
+    map[0][3],
+    map[3][3],
+    map[3][0],
+  ].includes(getMax())
+  let valid=true
+  if(check()) {
+    playStep(dir)
+    valid=check()
+  }
+  map=_map
+  return valid
+}
 function lowX(mapCopy) {
   const map2=[]
   for(let i=0; i<4; i++) {
@@ -407,7 +462,6 @@ function highX(mapCopy) {
   }
   return map2
 }
-
 function expert_track() {
   const track_steps=[]
   const fs=require('fs')
@@ -417,6 +471,7 @@ function expert_track() {
       const res=JSON.parse(fs.readFileSync(exp_dir+'/'+x, 'utf8'))
       const track=[]
       for(const [mapCopy, dir] of res) {
+        if(!isValid(mapCopy, dir)) continue
         const mapCopyLs=[mapCopy]
         for(let lx=mapCopy;;) {
           lx=lowX(lx)
@@ -523,8 +578,8 @@ function query(k) {
       loss: 'categoricalCrossentropy',
       metrics: ['acc'],
     })
-    const [ds, steps]=getTrainData(64)
-    let prev_loss=99
+    const [ds, steps]=getTrainData(256)
+    let prev_loss=99, hold_epoch=0
     model.fitDataset({iterator: _=>ds}, {
       epochs: 100,
       batchesPerEpoch: steps,
@@ -533,18 +588,23 @@ function query(k) {
           await save()
           console.log("-- saved --")
 
+          const hold=5
           const next=[
             [1e-3, .01, 'dc'],
             [1e-4, .002, 'dc'],
             [1e-5, .001, 'dc'],
             [1e-6, .0001, 'stop'],
           ]
-          for(let i=0; i<next.length; i++) {
+
+          if(hold_epoch<hold) {
+            hold_epoch++
+          }else for(let i=0; i<next.length; i++) {
             const [lr, min_diff, todo]=next[i]
             if(lr!==opt.learningRate) continue
             if(prev_loss-loss>=min_diff) continue
             if(todo==='dc') {
               opt.learningRate=next[i+1][0]
+              hold_epoch=0
               console.log(`-- learningRate decreased to ${opt.learningRate} --`)
             }else{
               console.log("-- early stopped --")

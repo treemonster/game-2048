@@ -27,5 +27,5 @@
 
 3. play the 2048 game.
 
-4. when the game is over, if you have achieved a value of 1024 or larger, your previous moves 
+4. when the game is over, if you have achieved a value of 2048, your previous moves 
 will be saved to a JSON file within the `exp-tracks` folder, and can be used for training the model.

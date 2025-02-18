@@ -2,6 +2,7 @@
 <style type="text/css">
 html, body{
 	overflow: hidden;
+	user-select: none;
 }
 .num{
 	width: 100px;
@@ -152,7 +153,34 @@ html, body{
   animation: appear .3s;
 }
 
+.btns{
+	position: relative;
+	margin: 0 auto;
+	display: flex;
+	width: 460px;
+  justify-content: space-evenly;
+	margin-top: 20px;
+}
+.btns .btn{
+	border: 1px solid #33f;
+	color: #33f;
+	cursor: pointer;
+	font-size: 24px;
+	padding: 8px 15px;
+	background: #eee;
+}
+.btns .btn.disable{
+	border: 1px solid #bbb;
+	color: #bbb;
+	cursor: default;
+}
+
 </style>
 <div id='board'></div>
+<div class='btns'>
+  <div class='btn' id='undo'>Undo</div>
+	<div class='btn' id='newgame'>New Game</div>
+	<div class='btn' id='autoplay'>Autoplay</div>
+</div>
 <script type="text/javascript" src='https://unpkg.com/@tensorflow/tfjs@4.22.0/dist/tf.min.js'></script>
 <script src='./1.js'></script>
