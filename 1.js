@@ -273,10 +273,11 @@ if(isBrowser) {
 
 const tf=isBrowser? window.tf: require('@tensorflow/tfjs-node-gpu')
 
-async function loadModel() {
+async function loadModel(is_distill) {
+  const mdir=is_distill? 'mod-2048-distill': 'mod-2048'
   const [savePath, loadPath]=[
-    isBrowser? null: 'file://'+__dirname+'/mod-2048',
-    isBrowser? './mod-2048/model.json': 'file://'+__dirname+'/mod-2048/model.json',
+    isBrowser? null: 'file://'+__dirname+'/'+mdir,
+    isBrowser? './'+mdir+'/model.json': 'file://'+__dirname+'/'+mdir+'/model.json',
   ]
 
   const saveFn=async model=>model.save(savePath)
@@ -289,44 +290,44 @@ async function loadModel() {
   model.add(tf.layers.embedding({
     inputShape: [4, 4],
     inputDim: 12, // 0~11
-    outputDim: 16,
+    outputDim: is_distill? 4: 16,
   }))
   model.add(tf.layers.conv2d({
     kernelSize: 3,
-    filters: 64,
+    filters: is_distill? 16: 64,
     padding: 'same',
     activation: 'relu'
   }))
   model.add(tf.layers.conv2d({
     kernelSize: 3,
-    filters: 64,
+    filters: is_distill? 16: 64,
     padding: 'same',
     activation: 'relu'
   }))
   model.add(tf.layers.maxPooling2d({poolSize: 2, strides: 2}))
   model.add(tf.layers.conv2d({
     kernelSize: 3,
-    filters: 128,
+    filters: is_distill? 32: 128,
     padding: 'same',
     activation: 'relu'
   }))
   model.add(tf.layers.conv2d({
     kernelSize: 3,
-    filters: 128,
+    filters: is_distill? 32: 128,
     padding: 'same',
     activation: 'relu'
   }))
   model.add(tf.layers.maxPooling2d({poolSize: 2, strides: 2}))
   model.add(tf.layers.flatten({}))
   model.add(tf.layers.dense({
-    units: 512,
+    units: is_distill? 64: 512,
     activation: 'relu',
   }))
   model.add(tf.layers.dense({
-    units: 512,
+    units: is_distill? 64: 512,
     activation: 'relu',
   }))
-  model.add(tf.layers.dropout(.1))
+  is_distill || model.add(tf.layers.dropout(.1))
   model.add(tf.layers.dense({
     units: 4,
     useBias: true,
@@ -491,7 +492,7 @@ function getTrainData(batchSize) {
           xs.push(x)
           ys.push(y)
         }
-        const smooth=.05
+        const smooth=.15 // このMOVEは100%正しいだと言う自信を持たない方がいい
         yield {
           xs: tf.tidy(_=>tf.tensor3d(xs, [batchSize, 4, 4])),
           ys: tf.tidy(_=>tf.oneHot(tf.tensor1d(ys, 'int32'), 4).mul(1-smooth*4).add(smooth)),
@@ -570,7 +571,6 @@ async function test(model, n=1000, batchSize=1024) {
   console.table({random: randomMaxs, model: modelMaxs})
 }
 
-
 function query(k) {
   return isBrowser && location.href.match(new RegExp(`\\b${k}=(.+?)\\b|$`))[1] || ''
 }
@@ -581,10 +581,12 @@ function query(k) {
     return
   }
 
-  const state='train'===process.argv[2]? 'train': 'test'
+  const state=['train', 'distill'].find(x=>x===process.argv[2]) || 'test'
 
   const [model, save]=await loadModel()
   model.summary()
+
+  // const [model_d, save_d]=await loadModel(true)
 
   if(state==='train') {
     const opt=tf.train.adam(1e-3)
