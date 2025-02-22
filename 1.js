@@ -271,7 +271,6 @@ if(isBrowser) {
 
 // tfjs
 
-newGame(true)
 const tf=isBrowser? window.tf: require('@tensorflow/tfjs-node-gpu')
 
 async function loadModel() {
@@ -345,11 +344,12 @@ function dir2y(dir) {
 function y2dir(y) {
   return dirs[y]
 }
-function getMax() {
+function getMax(m) {
+  m=m || map
   let max=0
   for(let i=0; i<4; i++) {
     for(let j=0; j<4; j++) {
-      max=Math.max(max, map[i][j])
+      max=Math.max(max, m[i][j])
     }
   }
   return max
@@ -415,53 +415,37 @@ function argu_xy(o) {
     ls.push({
       ...o,
       x: flip180(o.x, 4, o.y%2===0),
-      dir: y2dir(o.y),
     })
   }
   return ls
 }
 
-function isValid(mapCopy, dir) {
-  const _map=map
-  map=copy(mapCopy)
-  const check=_=>[
-    map[0][0],
-    map[0][3],
-    map[3][3],
-    map[3][0],
-  ].includes(getMax())
-  let valid=true
-  if(check()) {
-    playStep(dir)
-    valid=check()
-  }
-  map=_map
-  return valid
-}
 function lowX(mapCopy) {
   const map2=[]
   for(let i=0; i<4; i++) {
     map2[i]=[]
     for(let j=0; j<4; j++) {
+      if(mapCopy[i][j]===2) return;
       const r=mapCopy[i][j]/2
-      if(r===1) return;
       map2[i][j]=r
     }
   }
   return map2
 }
 function highX(mapCopy) {
+  if(getMax(mapCopy)<=32) return;
   const map2=[]
   for(let i=0; i<4; i++) {
     map2[i]=[]
     for(let j=0; j<4; j++) {
+      if(mapCopy[i][j]>=1024) return;
       const r=mapCopy[i][j]*2
-      if(r===2048) return;
       map2[i][j]=r
     }
   }
   return map2
 }
+
 function expert_track() {
   const track_steps=[]
   const fs=require('fs')
@@ -471,7 +455,6 @@ function expert_track() {
       const res=JSON.parse(fs.readFileSync(exp_dir+'/'+x, 'utf8'))
       const track=[]
       for(const [mapCopy, dir] of res) {
-        if(!isValid(mapCopy, dir)) continue
         const mapCopyLs=[mapCopy]
         for(let lx=mapCopy;;) {
           lx=lowX(lx)
@@ -508,9 +491,10 @@ function getTrainData(batchSize) {
           xs.push(x)
           ys.push(y)
         }
+        const smooth=.05
         yield {
           xs: tf.tidy(_=>tf.tensor3d(xs, [batchSize, 4, 4])),
-          ys: tf.tidy(_=>tf.oneHot(tf.tensor1d(ys, 'int32'), 4)),
+          ys: tf.tidy(_=>tf.oneHot(tf.tensor1d(ys, 'int32'), 4).mul(1-smooth*4).add(smooth)),
         }
       }else{
         xy=xy.concat(rsort([...exp_track_steps]))
@@ -521,52 +505,83 @@ function getTrainData(batchSize) {
   return [iterator(), Math.round(exp_track_steps.length/batchSize)]
 }
 
-function predict(model) {
-  x=tf.tensor3d([mapCopy2x(copy())], [1, 4, 4])
+function predict(model, maps) {
+  maps=maps || [map]
+  x=tf.tidy(_=>tf.tensor3d(
+    maps.map(m=>mapCopy2x(copy(m))),
+    [maps.length, 4, 4]
+    //[mapCopy2x(copy())], [1, 4, 4]
+  ))
   const y=model.predictOnBatch(x)
   const ns=tf.topk(y, 4).indices.dataSync()
   return [...ns].map(n=>y2dir(n))
 }
 
-async function test(isRandom, n=1000, log_step=250) {
-  const [model]=await loadModel()
-  let maxs={}
-  let str=''
+async function test(model, n=1000, batchSize=1024) {
+  const randomMaxs={}
   for(let i=0; i<n; i++) {
     newGame(true)
     for(;!isGameover();) {
-      const r=isRandom?
-        rsort(dirs.slice(0)):
-        predict(model)
-      for(const dir of r) {
+      for(const dir of rsort(dirs.slice(0))) {
         if(playStepEx(dir, true)) break
       }
     }
     const max=getMax()
-    maxs[max]=maxs[max] || 0
-    maxs[max]++
-    str=`${isRandom? "random:": "model:"} ${i+1} ${JSON.stringify(maxs)}`
-    if((i+1)%log_step===0) {
-      console.log(str)
+    randomMaxs[max]=randomMaxs[max] || 0
+    randomMaxs[max]++
+  }
+  const games=[]
+  function addNewGame() {
+    newGame(true)
+    const state={map: copy()}
+    games.push(state)
+  }
+  const modelMaxs={}
+  for(;;) {
+    for(; n && games.length<batchSize; ) {
+      addNewGame()
+      n--
+    }
+    if(!games.length) break
+    let maps=[]
+    for(const {map} of games) {
+      maps.push(map)
+    }
+    const dirs=predict(model, maps)
+    for(let i=0; i<dirs.length; i+=4) {
+      map=games[i/4].map
+      for(let j=i; j<i+4; j++) {
+        const dir=dirs[j]
+        if(playStepEx(dir, true)) break
+      }
+      if(isGameover()) {
+        const max=getMax()
+        modelMaxs[max]=modelMaxs[max] || 0
+        modelMaxs[max]++
+        games[i/4]=null
+      }else{
+        games[i/4].map=copy(map)
+      }
+    }
+    for(let i=games.length; i--; ) {
+      if(!games[i]) games.splice(i, 1)
     }
   }
-  return maxs
+  console.table({random: randomMaxs, model: modelMaxs})
 }
+
 
 function query(k) {
   return isBrowser && location.href.match(new RegExp(`\\b${k}=(.+?)\\b|$`))[1] || ''
 }
 
 ; (async _=>{
-  const state=isBrowser?
-    query('t'):
-    'train'===process.argv[2]? 'train': 'test'
-
-  if(!state) {
+  if(isBrowser) {
     newGame()
     return
   }
 
+  const state='train'===process.argv[2]? 'train': 'test'
 
   const [model, save]=await loadModel()
   model.summary()
@@ -590,9 +605,9 @@ function query(k) {
 
           const hold=5
           const next=[
-            [1e-3, .01, 'dc'],
-            [1e-4, .002, 'dc'],
-            [1e-5, .001, 'dc'],
+            [1e-3, .001, 'dc'],
+            [1e-4, .0005, 'dc'],
+            [1e-5, .0002, 'dc'],
             [1e-6, .0001, 'stop'],
           ]
 
@@ -618,18 +633,8 @@ function query(k) {
       },
     })
   }else if(state==='test') {
-    await test(true)
-    await test(false)
-  }else if(state==='play') {
-    newGame()
-    for(;;) {
-      const dirs=await predict(model)
-      for(const dir of dirs) {
-        if(playStepEx(dir)) break
-      }
-      if(isGameover()) return;
-      await sleep(200)
-    }
+    console.log("testing..")
+    await test(model, 1000)
   }
 
 })()
