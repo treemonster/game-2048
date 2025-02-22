@@ -246,7 +246,7 @@ if(isBrowser) {
       isAutoplaying=!isAutoplaying
       autoplay.innerHTML=isAutoplaying? 'Stop': 'Autoplay'
       set_lock([undo, newgame], true)
-      const [model]=await loadModel()
+      const [model]=await loadModel(query('distill')=='1')
       if(isGameover()) newGame()
       for(;;) {
         const dirs=await predict(model)
@@ -300,31 +300,31 @@ async function loadModel(is_distill) {
   }))
   model.add(tf.layers.conv2d({
     kernelSize: 3,
-    filters: is_distill? 16: 64,
+    filters: is_distill? 12: 64,
     padding: 'same',
     activation: 'relu'
   }))
   model.add(tf.layers.maxPooling2d({poolSize: 2, strides: 2}))
   model.add(tf.layers.conv2d({
     kernelSize: 3,
-    filters: is_distill? 32: 128,
+    filters: is_distill? 24: 128,
     padding: 'same',
     activation: 'relu'
   }))
   model.add(tf.layers.conv2d({
     kernelSize: 3,
-    filters: is_distill? 32: 128,
+    filters: is_distill? 24: 128,
     padding: 'same',
     activation: 'relu'
   }))
   model.add(tf.layers.maxPooling2d({poolSize: 2, strides: 2}))
   model.add(tf.layers.flatten({}))
   model.add(tf.layers.dense({
-    units: is_distill? 64: 512,
+    units: is_distill? 84: 512,
     activation: 'relu',
   }))
   model.add(tf.layers.dense({
-    units: is_distill? 64: 512,
+    units: is_distill? 84: 512,
     activation: 'relu',
   }))
   is_distill || model.add(tf.layers.dropout(.1))
@@ -434,7 +434,7 @@ function lowX(mapCopy) {
   return map2
 }
 function highX(mapCopy) {
-  if(getMax(mapCopy)<=32) return;
+  if(getMax(mapCopy)<=64) return;
   const map2=[]
   for(let i=0; i<4; i++) {
     map2[i]=[]
@@ -492,7 +492,7 @@ function getTrainData(batchSize) {
           xs.push(x)
           ys.push(y)
         }
-        const smooth=.15 // このMOVEは100%正しいだと言う自信を持たない方がいい
+        const smooth=.21 // このMOVEは100%正しいだと言う自信を持たない方がいい
         yield {
           xs: tf.tidy(_=>tf.tensor3d(xs, [batchSize, 4, 4])),
           ys: tf.tidy(_=>tf.oneHot(tf.tensor1d(ys, 'int32'), 4).mul(1-smooth*4).add(smooth)),
@@ -505,6 +505,57 @@ function getTrainData(batchSize) {
 
   return [iterator(), Math.round(exp_track_steps.length/batchSize)]
 }
+
+function getDistillTrainData(model, loadBatchSize, batchSize) {
+  console.log('loading model outputs..')
+  const exp_track_steps=expert_track()
+  let batch=[]
+  function handleBatch() {
+    if(!batch.length) return;
+    const bx=tf.tidy(_=>tf.tensor3d(
+      batch.map(e=>e.x),
+      [batch.length, 4, 4],
+    ))
+    const by=model.predictOnBatch(bx).arraySync()
+    for(let i=0; i<batch.length; i++) {
+      batch[i].by=by[i]
+    }
+    batch=[]
+  }
+  for(let e of exp_track_steps) {
+    batch.push(e)
+    if(batch.length>=loadBatchSize) handleBatch()
+  }
+  handleBatch()
+  console.log('train data ready!')
+  function *iterator() {
+    for(let xy=[];;) {
+      if(xy.length>batchSize) {
+        const xys=xy.splice(0, batchSize)
+        const xs=[], ys=[]
+        for(const {x, by} of xys) {
+          xs.push(x)
+          ys.push(by)
+        }
+        yield {
+          xs: tf.tidy(_=>tf.tensor3d(xs, [batchSize, 4, 4])),
+          ys: tf.tidy(_=>tf.tensor2d(ys, [batchSize, 4])),
+        }
+      }else{
+        xy=xy.concat(rsort([...exp_track_steps]))
+      }
+    }
+  }
+  /*
+  const a=iterator()
+  const {xs, ys}=a.next().value
+  xs.print()
+  ys.print()
+  process.exit()
+  */
+  return [iterator(), Math.round(exp_track_steps.length/batchSize)]
+}
+
 
 function predict(model, maps) {
   maps=maps || [map]
@@ -581,36 +632,42 @@ function query(k) {
     return
   }
 
-  const state=['train', 'distill'].find(x=>x===process.argv[2]) || 'test'
+  const state=['train', 'distill', 'test-distill'].find(x=>x===process.argv[2]) || 'test'
 
   const [model, save]=await loadModel()
-  model.summary()
+  const [model_d, save_d]=await loadModel(true)
 
-  // const [model_d, save_d]=await loadModel(true)
-
-  if(state==='train') {
+  if(state==='train' || state==='distill') {
     const opt=tf.train.adam(1e-3)
-    model.compile({
+    const [_model, _save, dataset]=state==='train'?
+      [model, save, getTrainData(256)]:
+      [model_d, save_d, getDistillTrainData(model, 2048, 128)]
+
+    if(state==='train') {
+      model.summary()
+    }else{
+      model_d.summary()
+    }
+
+    _model.compile({
       optimizer: opt,
       loss: 'categoricalCrossentropy',
       metrics: ['acc'],
     })
-    const [ds, steps]=getTrainData(256)
+    const [ds, steps]=dataset
     let prev_loss=99, hold_epoch=0
-    model.fitDataset({iterator: _=>ds}, {
+    _model.fitDataset({iterator: _=>ds}, {
       epochs: 100,
       batchesPerEpoch: steps,
       callbacks: {
         onEpochEnd: async (epoch, {loss})=>{
-          await save()
+          await _save()
           console.log("-- saved --")
 
-          const hold=5
+          const hold=10
           const next=[
             [1e-3, .001, 'dc'],
-            [1e-4, .0005, 'dc'],
-            [1e-5, .0002, 'dc'],
-            [1e-6, .0001, 'stop'],
+            [1e-4, .0001, 'stop'],
           ]
 
           if(hold_epoch<hold) {
@@ -634,9 +691,15 @@ function query(k) {
         },
       },
     })
-  }else if(state==='test') {
+  }else if(state==='test' || state==='test-distill') {
+    if(state==='test') {
+      model.summary()
+    }else{
+      model_d.summary()
+    }
+
     console.log("testing..")
-    await test(model, 1000)
+    await test(state==='test'? model: model_d, 1000)
   }
 
 })()

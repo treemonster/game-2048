@@ -160,6 +160,7 @@ html, body{
 	width: 460px;
   justify-content: space-evenly;
 	margin-top: 20px;
+	margin-bottom: 40px;
 }
 .btns .btn{
 	border: 1px solid #33f;
@@ -174,13 +175,32 @@ html, body{
 	color: #bbb;
 	cursor: default;
 }
-
+.change-model{
+	position: relative;
+	margin: 0 auto;
+	text-align: center;
+}
+.change-model .opt{
+	font-size: 24px;
+	margin: 0 15px;
+}
 </style>
 <div id='board'></div>
 <div class='btns'>
   <div class='btn' id='undo'>Undo</div>
 	<div class='btn' id='newgame'>New Game</div>
 	<div class='btn' id='autoplay'>Autoplay</div>
+</div>
+<div class='change-model'>
+	<script type="text/javascript">
+		if(location.href.indexOf('distill=1')==-1) {
+			document.write(`<a class='opt' href='?distill=1'>Distillation Model</a>
+				<span class='opt'>Full Model</span>`)
+		}else{
+			document.write(`<span class='opt'>Distillation Model</span>
+				<a class='opt' href='?distill=0'>Full Model</a>`)
+		}
+	</script>
 </div>
 <script type="text/javascript" src='https://unpkg.com/@tensorflow/tfjs@4.22.0/dist/tf.min.js'></script>
 <script src='./1.js'></script>

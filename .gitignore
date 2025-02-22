@@ -1,5 +1,6 @@
 .DS_*
 node_modules
 #mod-2048
+#mod-2048-distill
 *.tgz
 package-lock.json
