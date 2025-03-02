@@ -19,14 +19,6 @@
 
 1. `npm run test`
 
-## Train the distillation model
-
-1. `npm run distill`
-
-## Test the distillation model
-
-1. `npm run test-distill`
-
 ## Add human expert tracks
 
 1. `npm run game`

@@ -2,8 +2,6 @@
   "scripts": {
     "train": "node 1 train",
     "test": "node 1",
-    "distill": "node 1 distill",
-    "test-distill": "node 1 test-distill",
     "game": "sptcd -d"
   },
   "dependencies": {
