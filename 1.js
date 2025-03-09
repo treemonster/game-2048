@@ -245,8 +245,12 @@ if(isBrowser) {
     }else if(e.target===autoplay) {
       isAutoplaying=!isAutoplaying
       autoplay.innerHTML=isAutoplaying? 'Stop': 'Autoplay'
-      set_lock([undo, newgame], true)
+      set_lock([undo, newgame, autoplay], true)
+      const v=autoplay.innerHTML
+      autoplay.innerHTML='Loading..'
       const [model]=await loadModel()
+      set_lock(autoplay, false)
+      autoplay.innerHTML=v
       if(isGameover()) newGame()
       for(;;) {
         const dirs=await predict(model)
@@ -275,10 +279,9 @@ const tf=isBrowser? window.tf: require('@tensorflow/tfjs-node-gpu')
 let mod_cache={}
 async function loadModel() {
   const mdir='mod-2048'
-  const [savePath, loadPath]=[
-    isBrowser? null: 'file://'+__dirname+'/'+mdir,
-    isBrowser? './'+mdir+'/model.json': 'file://'+__dirname+'/'+mdir+'/model.json',
-  ]
+  const [savePath, loadPath]=isBrowser?
+    [null, './'+mdir+'/model.json?t='+Math.floor(Date.now()/86400e3)]:
+    ['file://'+__dirname+'/'+mdir, 'file://'+__dirname+'/'+mdir+'/model.json']
 
   const saveFn=async model=>model.save(savePath)
   try{
@@ -428,31 +431,46 @@ function argu_xy(o) {
   return ls
 }
 
-function expert_track() {
-  const track_steps=[]
+function expert_track(maxFilePerIter=100) {
   const fs=require('fs')
   const exp_dir=__dirname+'/exp-tracks'
-  fs.readdirSync(exp_dir).map(x=>{
-    if(x.indexOf('.json')>-1) {
-      const res=JSON.parse(fs.readFileSync(exp_dir+'/'+x, 'utf8'))
-      const track=[]
-      for(const [mapCopy, dir] of res) {
-        const mapCopyLs=[mapCopy]
-        for(const mc of mapCopyLs) {
-          track_steps.push(...argu_xy({
-            x: mapCopy2x(mc),
-            y: dir2y(dir),
-          }))
+  const fnList=fs.readdirSync(exp_dir).filter(x=>x.indexOf('.json')>-1)
+  function loadFile(fn) {
+    return JSON.parse(fs.readFileSync(exp_dir+'/'+fn, 'utf8'))
+  }
+  function loadXY(fn, track_steps) {
+    const res=loadFile(fn)
+    for(const [mapCopy, dir] of res) {
+      track_steps.push(...argu_xy({
+        x: mapCopy2x(mapCopy),
+        y: dir2y(dir),
+      }))
+    }
+  }
+  function *iterator() {
+    let track_steps=[], files=0
+    for(;;) {
+      rsort(fnList)
+      for(let fn of fnList) {
+        loadXY(fn, track_steps)
+        files++
+        if(files%maxFilePerIter===0) {
+          yield rsort(track_steps)
+          track_steps=[]
+          files=0
         }
       }
     }
-  })
-  return track_steps
+  }
+  const steps=fnList.reduce((n, fn)=>{
+    return n+loadFile(fn).length*8
+  }, 0)
+  return [steps, iterator()]
 }
 
 function getTrainData(batchSize) {
 
-  const exp_track_steps=expert_track()
+  const [exp_len, exp_iter]=expert_track()
 
   function *iterator() {
     for(let xy=[];;) {
@@ -468,12 +486,12 @@ function getTrainData(batchSize) {
           ys: tf.tidy(_=>tf.oneHot(tf.tensor1d(ys, 'int32'), 4)),
         }
       }else{
-        xy=xy.concat(rsort([...exp_track_steps]))
+        xy=xy.concat(exp_iter.next().value)
       }
     }
   }
 
-  return [iterator(), Math.round(exp_track_steps.length/batchSize)]
+  return [iterator(), Math.round(exp_len/batchSize)]
 }
 
 function predict(model, maps) {
@@ -481,7 +499,6 @@ function predict(model, maps) {
   x=tf.tidy(_=>tf.tensor3d(
     maps.map(m=>mapCopy2x(copy(m))),
     [maps.length, 4, 4]
-    //[mapCopy2x(copy())], [1, 4, 4]
   ))
   const y=model.predictOnBatch(x)
   const ns=tf.topk(y, 4).indices.dataSync()
@@ -556,9 +573,9 @@ function query(k) {
   const [model, save]=await loadModel()
 
   if(state==='train') {
-    const lr=1e-3
+    const lr=1e-2
     const opt=tf.train.adam(lr)
-    const dataset=getTrainData(2048)
+    const dataset=getTrainData(16384) // batchSizeを大きくすると、性能が高くになります！
 
     if(state==='train') {
       model.summary()
@@ -572,7 +589,7 @@ function query(k) {
     const [ds, steps]=dataset
     let min_loss=99, hold_epoch=0
     model.fitDataset({iterator: _=>ds}, {
-      epochs: 100,
+      epochs: 1000,
       batchesPerEpoch: steps,
       callbacks: {
         onEpochEnd: async (epoch, {loss})=>{
@@ -581,10 +598,11 @@ function query(k) {
 
           const hold=5
           const next=[
-            [lr, .008],
-            [1e-4, .005],
-            [1e-5, .002],
-            [1e-6, .001],
+            [1e-2, .005],
+            [1e-3, .002],
+            [1e-4, .001],
+            [1e-5, .001],
+            [1e-6, .0001],
           ]
           for(let i=0; i<next.length; i++) {
             const [lr, min_diff]=next[i]

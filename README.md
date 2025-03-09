@@ -29,3 +29,7 @@
 
 4. when the game is over, if you have achieved a value of 2048, your previous moves 
 will be saved to a JSON file within the `exp-tracks` folder, and can be used for training the model.
+
+## Demo Page
+
+https://treemonster.github.io/game-2048/
